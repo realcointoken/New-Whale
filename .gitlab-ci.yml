@@ -1,0 +1,42 @@
+stages:
+  - package
+  - scan
+  - deploy
+
+include:
+  - project: 'build-images/synopsys-detect'
+    ref: main
+    file: '/templates/.gitlab-ci-blackduck-intelligent.yml'
+  - project: 'build-images/synopsys-detect'
+    ref: main
+    file: '/templates/.gitlab-ci-blackduck-signature.yml' # Signature scans 
+  - project: 'build-images/sonar-qube'
+    ref: main
+    file: '/templates/.gitlab-ci-sonarqube.yml'
+
+docker-package:
+  stage: package
+  tags:
+    - short-jobs
+  image: docker
+  services:
+    - docker:dind
+  script:
+    - docker login -u gitlab-ci-token -p $CI_JOB_TOKEN $CI_REGISTRY
+    - docker build -t $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME .
+    - docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME $CI_REGISTRY_IMAGE:latest
+    - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME
+    - docker push $CI_REGISTRY_IMAGE:latest
+
+deployment:
+  stage: deploy
+  image: docker.slock.it/build-images/custody-k8s-deployment-image
+  rules:
+    - when: manual
+  tags:
+    - deployment
+  environment:
+    name: internal
+    url: https://goerli-faucet.slock.it
+  script:
+    - helm upgrade --atomic -i --set key=${FAUCET_KEY} goerli-faucet-$CI_ENVIRONMENT_SLUG ./faucet
